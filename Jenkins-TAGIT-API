@@ -1,0 +1,153 @@
+pipeline {
+   agent {
+        label 'DEV-1'
+    }
+    tools {
+        maven 'mvn'
+    }
+    environment {
+
+        PROJECT_NAME = 'TAGIT-API'
+        
+    }
+    stages {
+        stage('Clean Ws') {
+	  steps {
+	     cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+	     
+	     }
+	     }
+   
+        stage('Cloning the repo from the github') {
+            steps {
+
+                checkout([
+                     $class: 'GitSCM', 
+			branches: [[name: "${params.Code_Branch}"]], 
+                        doGenerateSubmoduleConfigurations: false, 
+                        extensions: [[$class: 'CleanBeforeCheckout']], 
+                        submoduleCfg: [], 
+                        userRemoteConfigs: [
+                            [
+                                credentialsId: '5229a6f9-8c35-40b6-aa3d-609c769a31c6', 
+                                url: 'https://github.com/RigilCorp/TAGIT-API.git'
+                            ]
+                        ]
+                ])
+            }
+            
+        } 
+        
+         stage('Build') {
+
+               steps {
+                    bat "mvn clean package" 
+                     dir('C:\\Project-Build\\')
+                    {
+                        bat "C:\\7-Zip\\7z.exe a  ${PROJECT_NAME}-${env.BUILD_NUMBER}.zip  C:\\jenkins-slave\\workspace\\TAGIT-API\\tagit\\target\\tagit-0.0.1-SNAPSHOT.jar"
+                    } 
+                    // Build copied for S3
+                    dir('C:\\archive\\TAGIT\\')
+                    {
+                        bat "C:\\7-Zip\\7z.exe a  ${PROJECT_NAME}-${env.BUILD_NUMBER}.zip  C:\\jenkins-slave\\workspace\\TAGIT-API\\tagit\\target\\tagit-0.0.1-SNAPSHOT.jar"
+                    }
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', credentialsId: 'aws-s3-cred', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+
+                    bat "aws s3 cp C:\\archive\\TAGIT\\${PROJECT_NAME}-${env.BUILD_NUMBER}.zip  s3://rigil-aws-devops-staging-s3-bucket/TAGIT-API/upload/"
+                    
+                    
+                    
+                    }
+        
+        
+                   }
+               }
+
+           
+        
+        
+        stage('Deploy'){
+            steps {
+                sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgHH7/Lz3y2vMo0U39zIdDQlx358LKCJF3usv/sTOliMWez3o+/1569lHkV+e8qHaA}', key: '', keyPath: '', username: 'Manish'],
+                       transfers: [sshTransfer(cleanRemote: false,
+                       excludes: '', 
+                       execCommand: "Powershell net stop tagit",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+                       ),
+                       sshTransfer(cleanRemote: false,
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/TAGIT-API/upload/TAGIT-API-${BUILD_NUMBER}.zip   C:\\webapps\\jenkins\\TAGIT\\TAGIT-API",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                        ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'Powershell Compress-Archive -Path C:\\webapps\\tagit\\tagit-0.0.1-SNAPSHOT.jar -DestinationPath C:\\webapps\\backup-pipeline\\TAGIT\\TAGIT-API\\TAGIT-API.zip -F',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp C:\\webapps\\backup-pipeline\\TAGIT\\TAGIT-API\\TAGIT-API.zip s3://rigil-aws-devops-staging-s3-bucket/TAGIT-API/backup/${env.BUILD_NUMBER}/ ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Expand-Archive -Path C:\\webapps\\jenkins\\TAGIT\\TAGIT-API\\TAGIT-API-${BUILD_NUMBER}.zip -DestinationPath C:\\webapps\\jenkins\\TAGIT\\TAGIT-API\\expand -F",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\webapps\\jenkins\\TAGIT\\TAGIT-API\\expand\\* C:\\webapps\\tagit\\   -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell net start tagit",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		               emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                        Build deployed to Dev Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'
+
+                }
+                               
+
+            }
+        }
+     	    
+    
+     post {  
+         
+        always
+        {  
+                   emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                   Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'
+          
+        }   
+
+        failure
+        {  
+                    emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                    Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'         
+	    }
+    }
+    
+}
+  
+ 
+  
+
+  
+                
+            
+        

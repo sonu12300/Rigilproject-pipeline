@@ -1,0 +1,349 @@
+pipeline {
+    agent {
+        label 'DEV-1'
+    }
+    environment {
+
+        PROJECT_NAME = 'rigil-rocks'
+        PROJECT_SOLUTION_NAME= 'Resume.sln'
+        DATE_TAG = System.currentTimeMillis();
+    }
+    stages {
+    
+        stage('Clean Ws') {
+	   steps {
+	      cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+	     
+	     }
+	     }
+   
+        stage('Cloning the repo from the github') {
+            steps {
+
+                checkout([
+                     $class: 'GitSCM', 
+			branches: [[name: "${params.Code_Branch}"]], 
+                        doGenerateSubmoduleConfigurations: false, 
+                        extensions: [], 
+                        submoduleCfg: [], 
+                        userRemoteConfigs: [
+                            [
+                                credentialsId: '5229a6f9-8c35-40b6-aa3d-609c769a31c6', 
+                                url: 'https://github.com/RigilCorp/Rigil-Rocks.git'
+                            ]
+                        ]
+                ])
+            }
+        } 
+	stage('Restore packages') {
+
+            steps {
+	         bat 'powershell Remove-Item -Path "C:\\Publish\\*" -Recurse '
+                 bat  "C:\\Nuget\\nuget.exe restore ${PROJECT_SOLUTION_NAME}"
+            
+
+            }
+        }
+        stage('Build Solutions') {
+
+          steps {
+	     //bat "curl -I https://dev-stratagem-api.rigilites.net/api/v1/start"
+             //sleep 300
+             //bat "C:\\sonar-scanner-msbuild\\SonarScanner.MSBuild.exe begin /k:Rigil-Rocks /d:sonar.host.url=http://sonar-load-balancer-535199886.us-east-1.elb.amazonaws.com:9000 /d:sonar.login=bb7ecc0e6104ce5995802801fbd07c8810b871a0"
+             //bat "C:\\sonar-scanner-msbuild\\SonarScanner.MSBuild.exe begin /k:Rigil-Rocks /d:sonar.host.url=https://sonar.rigil.net /d:sonar.login=6874cce237bdcd3992efaf19d38f313fbe78bcc5"
+             bat "c:\\jenkins-slave\\resume.bat"
+             //bat "C:\\sonar-scanner-msbuild\\SonarScanner.MSBuild.exe end /d:sonar.login=6874cce237bdcd3992efaf19d38f313fbe78bcc5"
+	     //bat "C:\\sonar-scanner-msbuild\\SonarScanner.MSBuild.exe end /d:sonar.login=bb7ecc0e6104ce5995802801fbd07c8810b871a0"
+             //sleep 60
+             //bat "curl -I https://dev-stratagem-api.rigilites.net/api/v1/stop"
+            }
+        }
+        stage('Publish Website') {
+
+                steps {
+                    
+                    bat "msbuild .//Resume//Resume.csproj /p:Configuration=Release ^ /p:Platform=AnyCPU ^ /t:WebPublish ^ /p:WebPublishMethod=FileSystem ^/p:DeleteExistingFiles=True ^ /p:publishUrl=c:\\publish"
+
+                    }
+        }
+        stage('Remove appseting/config') {
+
+                steps {
+                    
+                    bat "del  C:\\Publish\\ConnectionStrings.config"
+                    bat "del  C:\\Publish\\AppSettings.config"
+                    bat "del  C:\\Publish\\Web.config"
+                    
+
+                    }
+        }
+        stage('Archiving the Build Artifact') {
+
+                steps {
+                    
+                    dir('C:\\archive\\Rigil-Rocks\\')
+                    {
+                       bat "C:\\7-Zip\\7z.exe a  ${PROJECT_NAME}-${env.BUILD_NUMBER}.zip  C:\\publish\\*"
+                    }
+
+                }
+        }
+
+        stage('S3 publisher') {
+                steps{
+                             
+			      withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', credentialsId: 'aws-s3-cred', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+
+                               
+                               bat "aws s3 cp C:\\archive\\Rigil-Rocks\\${PROJECT_NAME}-${env.BUILD_NUMBER}.zip  s3://rigil-aws-devops-staging-s3-bucket/rigil-rocks/upload/"
+                              
+                             }
+
+	         }
+	    }
+         
+        
+        stage('IIS Site Stop') {
+                
+                steps {
+                  
+		sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:Rigil.Rocks',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                
+                // Give time for IIS to release hold files
+                sleep(55)
+		}
+		}
+		
+	stage('Deploy to Dev') {
+                
+                steps {	
+                withCredentials([usernamePassword(credentialsId: 'Rigil-Rock-Database-Dev', passwordVariable: 'dbPass', usernameVariable: 'dbUser')]) {
+
+                    sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/rigil-rocks/upload/rigil-rocks-${BUILD_NUMBER}.zip   C:\\webapps\\jenkins\\rigil-rocks",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(5)
+		       //backup
+		       
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,   
+                       excludes: '', 
+                       execCommand: 'Powershell Compress-Archive -Path C:\\webapps\\Rigil.Rocks\\dev -DestinationPath C:\\webapps\\backup-pipeline\\rigil-rocks\\rigil-rocks.zip -F',
+                       execTimeout: 360000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(5)
+		        //backup s3
+		       
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp C:\\webapps\\backup-pipeline\\rigil-rocks\\rigil-rocks.zip s3://rigil-aws-devops-staging-s3-bucket/rigil-rocks/backup/${env.BUILD_NUMBER}/ ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(5)
+		       
+		       //deploy
+		       
+		       
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Expand-Archive -Path C:\\webapps\\jenkins\\rigil-rocks\\rigil-rocks-${BUILD_NUMBER}.zip -DestinationPath C:\\webapps\\Rigil.Rocks\\dev -F",
+                       execTimeout: 240000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(5)
+		       
+		       //config
+		       
+		       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\webapps\\Rigil.Rocks\\deployment\\dev\\* C:\\webapps\\Rigil.Rocks\\dev\\   -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(5)
+		       
+		       //database
+		       
+		       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell sqlcmd -s EC2AMAZ-IJ65LPU -U ${dbUser} -P ${dbPass} -d RR_Dev -i c:\\webapps\\Rigil.Rocks\\dev\\ResumedbChanges.sql -o c:\\webapps\\jenkins\\sqldev.txt",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                      
+                        emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                          Build deployed to Dev Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'bhim@zibal.com,bohar@zibal.com,smriti@zibal.com,gaurav@zibal.com,alok@zibal.com,shivani@zibal.com,akash@zibal.com'
+                }
+                  
+			  }
+                  
+		}
+        
+    	stage('Recylce-Refresh Dev-IIS') {
+
+             steps {
+                     sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe recycle APPPOOL "Rigil.Rocks"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:Rigil.Rocks',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start site /site.name:Rigil.Rocks',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(10)
+                  
+                  
+			  }
+         
+        }
+        stage('Deploy: Test Env') {
+
+                steps {
+                    
+                  input(message: 'Aprrove?', ok: 'Yes', submitter: 'smriti,bhim,gaurav')
+                  echo 'Deploying to Test'
+                        withCredentials([usernamePassword(credentialsId: 'Rigil-Rock-Database-Dev', passwordVariable: 'dbPass', usernameVariable: 'dbUser')]) {
+
+                        sshPublisher(publishers: [sshPublisherDesc(
+                            configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                            sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                            transfers: [sshTransfer(cleanRemote: false, 
+                            excludes: '', 
+                            execCommand: "Powershell Expand-Archive -Path C:\\webapps\\jenkins\\rigil-rocks\\rigil-rocks-${BUILD_NUMBER}.zip -DestinationPath C:\\webapps\\Rigil.Rocks\\test -F",
+                            execTimeout: 360000, flatten: false, makeEmptyDirs: false,
+                            noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                            )],
+			    usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+			    sleep(10)
+			    
+			    sshPublisher(publishers: [sshPublisherDesc(
+                            configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                            sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                            transfers: [sshTransfer(cleanRemote: false, 
+                            excludes: '', 
+                            execCommand: "Powershell copy-item C:\\webapps\\Rigil.Rocks\\deployment\\test\\* C:\\webapps\\Rigil.Rocks\\test\\   -recurse -Force",
+                            execTimeout: 240000, flatten: false, makeEmptyDirs: false,
+                            noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                            )],
+			    usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+			    sleep(10)
+			    
+		            sshPublisher(publishers: [sshPublisherDesc(
+                            configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                            sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                            transfers: [sshTransfer(cleanRemote: false,  
+                            excludes: '', 
+                            execCommand: "Powershell sqlcmd -s EC2AMAZ-IJ65LPU -U ${dbUser} -P ${dbPass} -d RR_test -i C:\\webapps\\Rigil.Rocks\\test\\ResumedbChanges.sql -o C:\\webapps\\jenkins\\sqltest.txt",
+                            execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                            noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                            )], 
+                            usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                        }
+
+                    }
+        }
+	stage('Recylce-Refresh Test IIS') {
+
+             steps {
+                     sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe recycle APPPOOL "Rigil.Rocks"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:Rigil.Rocks',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start site /site.name:Rigil.Rocks',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                   emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                    Build is deployed to Test.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com,bhim@zibal.com,smriti@zibal.com,bohar@zibal.com,gaurav@zibal.com,alok@zibal.com,shivani@zibal.com,akash@zibal.com'
+ 
+                  
+		  }
+         
+        }
+     
+        
+    }
+    post {  
+         always {  
+	 
+	           cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+		   
+                   emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                   Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com,bhim@zibal.com,bohar@zibal.com,smriti@zibal.com,gaurav@zibal.com,alok@zibal.com,shivani@zibal.com,akash@zibal.com'
+          
+         } 
+
+         
+         failure {  
+                    emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                    Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com,bhim@zibal.com,bohar@zibal.com,smriti@zibal.com,gaurav@zibal.com,alok@zibal.com,shivani@zibal.com,akash@zibal.com'      
+	 }
+    }
+  }

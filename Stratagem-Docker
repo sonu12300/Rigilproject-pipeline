@@ -1,0 +1,117 @@
+pipeline {
+    agent {
+        label 'DEV-1'
+    }
+    environment {
+
+        PROJECT_NAME = 'Stratagem-Docker'
+       
+        
+    }
+    stages {
+        stage('Clean Ws') {
+	  steps {
+	     cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+	     
+	     }
+	     }
+   
+        stage('Cloning the repo from the github') {
+            steps {
+
+                checkout([
+                     $class: 'GitSCM', 
+			branches: [[name: "*/jenkins"]], 
+                        doGenerateSubmoduleConfigurations: false, 
+                        extensions: [], 
+                        submoduleCfg: [], 
+                        userRemoteConfigs: [
+                            [
+                                credentialsId: '0ab3b7ee-cc07-4641-b7f2-c2dcf065d8ee', 
+                                url: 'https://github.com/RigilCorp/StrataGem-Docker.git'
+                            ]
+                        ]
+                ])
+            }
+        } 
+	    
+        
+        stage('Archiving the Build Artifact') {
+
+                steps {
+		 
+                    
+                    dir('C:\\archive\\Stratagem-Docker\\')
+                    {
+                       bat "C:\\7-Zip\\7z.exe a  ${PROJECT_NAME}-${env.BUILD_NUMBER}.zip  C:\\Stratagem-Docker\\*"
+                    }
+
+                }
+        }
+
+        stage('S3 publisher') {
+                steps{
+                             
+			      withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', credentialsId: 'aws-s3-cred', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+
+                               bat "aws s3 ls"
+                               bat "aws s3 cp C:\\archive\\Stratagem-Docker\\${PROJECT_NAME}-${env.BUILD_NUMBER}.zip  s3://rigil-aws-devops-staging-s3-bucket/Stratagem-Docker/upload/"
+                             }
+
+	         }
+	    }
+	
+                      
+		       
+        stage('Deploy to Dev') {
+                
+                steps {
+          
+                     sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgHH7/Lz3y2vMo0U39zIdDQlx358LKCJF3usv/sTOliMWez3o+/1569lHkV+e8qHaA}', key: '', keyPath: '', username: 'Manish'],
+                       transfers: [sshTransfer(cleanRemote: false,
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/Stratagem-Docker/upload/Stratagem-Docker-${BUILD_NUMBER}.zip   /opt/Stratagem-Docker",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgHH7/Lz3y2vMo0U39zIdDQlx358LKCJF3usv/sTOliMWez3o+/1569lHkV+e8qHaA}', key: '', keyPath: '', username: 'Manish'],
+                       transfers: [sshTransfer(cleanRemote: false,
+                       excludes: '', 
+                       execCommand: "sh unzip -xzvf /opt/Stratagem-Docker/Stratagem-Docker-${BUILD_NUMBER}.zip ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                      // emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                        // Build deployed to Dev Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com'
+                   //  }
+                  
+	             }
+        
+	  
+   
+      }    
+   
+    post{  
+            always{ 
+	            cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+                    emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                    Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com'      
+	              }
+                
+            failure{  
+                        emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                        Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com'      
+	  
+                    
+                    }
+    
+   }
+    
+}

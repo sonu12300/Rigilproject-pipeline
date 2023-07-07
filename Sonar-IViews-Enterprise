@@ -1,0 +1,52 @@
+pipeline {
+    agent {
+        label 'DEV-1'
+    }
+    environment {
+        IMS_PROJECT_NAME = 'IMS'
+        iView_PROJECT_NAME = 'iViews'
+        iView_Enterprise_PROJECT_NAME = 'iViews.Enterprise'
+        PROJECT_SOLUTION_NAME = 'iViews.Enterprise.sln'
+        DATE_TAG = System.currentTimeMillis()
+    }
+    stages {
+        stage('Clean Ws') {
+	  steps {
+	     cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+	     
+	     }
+	     }
+        stage('Cloning the repo from the github') {
+            steps {
+                checkout([
+                      $class: 'GitSCM',
+             branches: [[name: "${params.Code_Branch}"]],
+                         doGenerateSubmoduleConfigurations: false,
+                         extensions: [],
+                         submoduleCfg: [],
+                         userRemoteConfigs: [
+                             [
+                                 credentialsId: '5229a6f9-8c35-40b6-aa3d-609c769a31c6',
+                                 url: 'https://github.com/RigilCorp/Iviews-Enter.git'
+                             ]
+                         ]
+                 ])
+            }
+        }
+        stage('Restore packages') {
+            steps {
+	            bat 'powershell Remove-Item -Path "C:\\iViews-Publish\\IMS\\*" -Recurse '
+                bat 'powershell Remove-Item -Path "C:\\iViews-Publish\\iViews.Enterprise\\*" -Recurse '
+                bat 'powershell Remove-Item -Path "C:\\iViews-Publish\\iViews\\*" -Recurse '
+		
+                bat  "C:\\Nuget\\nuget.exe restore ${PROJECT_SOLUTION_NAME}"
+
+            }
+        }
+        stage('Sonar Scan') {
+            steps {
+                bat "c:\\jenkins-slave\\iviewssonar.bat"
+            }
+        }
+    }
+}

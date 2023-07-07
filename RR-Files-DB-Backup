@@ -1,0 +1,125 @@
+pipeline {
+    agent {
+        label 'DEV-1'
+    }
+	
+    environment {
+        PROJECT_NAME = 'RR-DB-Files-Backup'
+    }
+    stages {
+        stage("Backup Files and uploading on s3"){
+            steps{
+                echo "====++++executing Files Backup++++===="
+		       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,   
+                       excludes: '', 
+                       execCommand: 'Powershell Compress-Archive -Path C:\\LibraryDev -DestinationPath C:\\Backup-Folder\\FilesZip\\LibraryDev.zip -F',
+                       execTimeout: 360000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		               usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		               sleep(5)
+				
+				
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp C:\\Backup-Folder\\FilesZip\\LibraryDev.zip s3://rigil-aws-devops-staging-s3-bucket/RRBackup/RR-Files-Backup/${env.BUILD_NUMBER}/ ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(15)
+            }
+            post{
+                always{
+                    echo "====++++always++++===="
+                }
+                success{
+                    echo "====++++A executed successfully++++===="
+                }
+                failure{
+                    echo "====++++A execution failed++++===="
+                }
+        
+            }
+        }
+
+
+        stage("Db backup and uploading on s3"){
+            steps{
+                     echo "====++++Executing DB Backup++++===="
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,   
+                       excludes: '', 
+                       execCommand: 'Powershell Compress-Archive -Path C:\\Backup-Folder\\DbBackup -DestinationPath C:\\Backup-Folder\\DbBackup\\DbBackup.zip -F',
+                       execTimeout: 360000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		               usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		               sleep(5)
+
+                      sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp C:\\Backup-Folder\\DbBackup\\DbBackup.zip s3://rigil-aws-devops-staging-s3-bucket/RRBackup/RR-DB-backup/${env.BUILD_NUMBER}/ ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(15)
+			       
+		       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Remove-Item -Path C:\\Backup-Folder\\DbBackup\\* -Recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])	
+		       
+		       }
+			   post{
+                always{
+                    echo "====++++always++++===="
+                }
+                success{
+                    echo "====++++A executed successfully++++===="
+                }
+                failure{
+                    echo "====++++A execution failed++++===="
+                }
+        
+            }
+		}
+		       
+   }	
+ 
+    post{  
+            always{  
+	            cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+	          
+                    emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                    Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com'      
+	              }      
+            failure{  
+                        emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                        Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com'      
+	  
+                    
+                    }
+    
+    }
+ }

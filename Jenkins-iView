@@ -1,0 +1,410 @@
+pipeline {
+    agent {
+        label 'DEV-1'
+    }
+    environment {
+        IMS_PROJECT_NAME = 'IMS'
+        iView_PROJECT_NAME = 'iViews'
+        iView_Enterprise_PROJECT_NAME = 'iViews.Enterprise'
+        PROJECT_SOLUTION_NAME = 'iViews.Enterprise.sln'
+        DATE_TAG = System.currentTimeMillis()
+    }
+    stages {
+        stage('Clean Ws') {
+	  steps {
+	     cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+	     
+	     }
+	     }
+        stage('Cloning the repo from the github') {
+            steps {
+                checkout([
+                      $class: 'GitSCM',
+             branches: [[name: "${params.Code_Branch}"]],
+                         doGenerateSubmoduleConfigurations: false,
+                         extensions: [],
+                         submoduleCfg: [],
+                         userRemoteConfigs: [
+                             [
+                                 credentialsId: '5229a6f9-8c35-40b6-aa3d-609c769a31c6',
+                                 url: 'https://github.com/RigilCorp/Iviews-Enter.git'
+                             ]
+                         ]
+                 ])
+            }
+        }
+        stage('Restore packages') {
+            steps {
+	        bat 'powershell Remove-Item -Path "C:\\iViews-Publish\\IMS\\*" -Recurse '
+                bat 'powershell Remove-Item -Path "C:\\iViews-Publish\\iViews.Enterprise\\*" -Recurse '
+                bat 'powershell Remove-Item -Path "C:\\iViews-Publish\\iViews\\*" -Recurse '
+		
+                bat  "C:\\Nuget\\nuget.exe restore ${PROJECT_SOLUTION_NAME}"
+
+            }
+        }
+        stage('Build Solutions') {
+            steps {
+                bat "c:\\jenkins-slave\\iviews.bat"
+            }
+        }
+        stage('Publish IMS ') {
+            steps {
+                echo "Publish IMS"
+
+                bat "msbuild .//IMS//IMS.csproj /p:Configuration=Release ^ /p:Platform=AnyCPU ^ /t:WebPublish ^ /p:WebPublishMethod=FileSystem ^/p:DeleteExistingFiles=True ^ /p:publishUrl=c:\\iViews-Publish\\IMS"
+            }
+        }
+        stage('Publish iViews ') {
+            steps {
+                echo "Publish iViews"
+                bat "msbuild .//iViews//iViews.csproj /p:Configuration=Release ^ /p:Platform=AnyCPU ^ /t:WebPublish ^ /p:WebPublishMethod=FileSystem ^/p:DeleteExistingFiles=True ^ /p:publishUrl=c:\\iViews-Publish\\iViews"
+            }
+        }
+        stage('Publish iViews.Enterprise ') {
+            steps {
+                echo "Publish iViews.Enterprise "
+                bat "msbuild .//iViews.Enterprise//iViews.Enterprise.csproj /p:Configuration=Release ^ /p:Platform=AnyCPU ^ /t:WebPublish ^ /p:WebPublishMethod=FileSystem ^/p:DeleteExistingFiles=True ^ /p:publishUrl=c:\\iViews-Publish\\iViews.Enterprise"
+            }
+        }
+	
+        stage('Remove appseting/config') {
+
+                steps {
+	          
+                    bat "del c:\\iViews-Publish\\IMS\\ConnectionStrings.IMS.config"
+                    bat "del  c:\\iViews-Publish\\IMS\\AppSettings.IMS.config"
+                    bat "del  c:\\iViews-Publish\\IMS\\Web.config"
+                    
+                    bat "del c:\\iViews-Publish\\iViews\\ConnectionStrings.iViews.config"
+                    bat "del  c:\\iViews-Publish\\iViews\\AppSettings.iViews.config"
+                    bat "del  c:\\iViews-Publish\\iViews\\Web.config"
+
+                    bat "del c:\\iViews-Publish\\iViews.Enterprise\\ConnectionStrings.iViewsEnterprise.config"
+                    bat "del  c:\\iViews-Publish\\iViews.Enterprise\\AppSettings.iViewsEnterprise.config"
+                    bat "del  c:\\iViews-Publish\\iViews.Enterprise\\Web.config"
+
+                    }
+        }
+        stage("Move Build to S3"){
+            steps{
+	        dir('C:\\Project-Build\\')
+                    {
+                      bat "C:\\7-Zip\\7z.exe a  ${IMS_PROJECT_NAME}-${env.BUILD_NUMBER}.zip  C:\\iViews-Publish\\IMS\\*"
+                      bat "C:\\7-Zip\\7z.exe a  ${iView_PROJECT_NAME}-${env.BUILD_NUMBER}.zip  C:\\iViews-Publish\\iViews\\*"
+		      bat "C:\\7-Zip\\7z.exe a  ${iView_Enterprise_PROJECT_NAME}-${env.BUILD_NUMBER}.zip  C:\\iViews-Publish\\iViews.Enterprise\\*"
+                    
+                    }
+                 //Step 1 -- Zip the published file and move to S3 
+                dir('c:\\archive\\iViews\\'){
+                    bat "C:\\7-Zip\\7z.exe a  ${IMS_PROJECT_NAME}-${env.BUILD_NUMBER}.zip  C:\\iViews-Publish\\IMS\\*"
+                    bat "C:\\7-Zip\\7z.exe a  ${iView_PROJECT_NAME}-${env.BUILD_NUMBER}.zip  C:\\iViews-Publish\\iViews\\*"
+                    bat "C:\\7-Zip\\7z.exe a  ${iView_Enterprise_PROJECT_NAME}-${env.BUILD_NUMBER}.zip  C:\\iViews-Publish\\iViews.Enterprise\\*"
+
+
+
+                }
+                //Step 2 -- Move the zip build to S3 
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', credentialsId: 'aws-s3-cred', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+
+                    bat "aws s3 cp C:\\archive\\iViews\\${IMS_PROJECT_NAME}-${env.BUILD_NUMBER}.zip  s3://rigil-aws-devops-staging-s3-bucket/Iviews-Enter/upload/IMS/"
+                    bat "aws s3 cp C:\\archive\\iViews\\${iView_PROJECT_NAME}-${env.BUILD_NUMBER}.zip  s3://rigil-aws-devops-staging-s3-bucket/Iviews-Enter/upload/iViews/"
+                    bat "aws s3 cp C:\\archive\\iViews\\${iView_Enterprise_PROJECT_NAME}-${env.BUILD_NUMBER}.zip  s3://rigil-aws-devops-staging-s3-bucket/Iviews-Enter/upload/iViews.Enterprise/"
+                }
+            }
+            post{
+                always{
+                    echo "====++++always++++===="
+                }
+                success{
+                    echo "====++++Move Build to S3 executed successfully++++===="
+                }
+                failure{
+                    echo "====++++Move Build to S3 execution failed++++===="
+                }
+        
+            }
+        }
+	
+	stage("IIS Site Stop"){
+            steps{
+	         echo "====++++executing IIS Reset/Recyle++++===="
+                    sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:iViews12.2',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(25)
+		       }
+		       }
+	
+        stage("Backup Iviews-Enter Dev Project"){
+            steps{
+                echo "====++++executing Backup++++===="
+                sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp C:\\webapps\\iViews_2.2\\iviewsenterprise\\ s3://rigil-aws-devops-staging-s3-bucket/Iviews-Enter/backup/${env.BUILD_NUMBER}/  --recursive",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(15)
+            }
+            post{
+                always{
+                    echo "====++++always++++===="
+                }
+                success{
+                    echo "====++++A executed successfully++++===="
+                }
+                failure{
+                    echo "====++++A execution failed++++===="
+                }
+        
+            }
+        }
+        stage("Deploy IMS to Dev"){
+            steps{
+                echo "====++++executing Deploy IMS to Dev++++===="
+                //Step 3 SSH and Download the Build to the Dev Server
+                 sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/Iviews-Enter/upload/IMS/IMS-${BUILD_NUMBER}.zip   C:\\webapps\\jenkins\\Iviews-Enter\\IMS",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Expand-Archive -Path C:\\webapps\\jenkins\\Iviews-Enter\\IMS\\IMS-${BUILD_NUMBER}.zip -DestinationPath C:\\webapps\\iViews_2.2\\iviewsenterprise\\IMS\\ -F",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\webapps\\iViews_2.2\\iViews-deployment\\IMS\\* C:\\webapps\\iViews_2.2\\iviewsenterprise\\IMS\\   -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(15)
+                      
+            }
+           
+        }
+        stage("Deploy Iviews to Dev"){
+            steps{
+                echo "====++++executing A++++===="
+                sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/Iviews-Enter/upload/iViews/iViews-${BUILD_NUMBER}.zip   C:\\webapps\\jenkins\\Iviews-Enter\\iViews",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Expand-Archive -Path C:\\webapps\\jenkins\\Iviews-Enter\\iViews\\iViews-${BUILD_NUMBER}.zip -DestinationPath C:\\webapps\\iViews_2.2\\iviewsenterprise\\ -F",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\webapps\\iViews_2.2\\iViews-deployment\\iViews\\* C:\\webapps\\iViews_2.2\\iviewsenterprise\\   -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(15)
+
+                      
+            }
+           
+        }
+        stage("Deploy to Iview Enterprise to Dev"){
+            steps{
+                     echo "====++++executing Deploy to Iview Enterprise to Dev++++===="
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/Iviews-Enter/upload/iViews.Enterprise/iViews.Enterprise-${BUILD_NUMBER}.zip  C:\\webapps\\jenkins\\Iviews-Enter\\iViews.Enterprise",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       
+		       sleep(35)
+
+                      sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\webapps\\jenkins\\7-Zip\\7z.exe x  C:\\webapps\\jenkins\\Iviews-Enter\\iViews.Enterprise\\iViews.Enterprise-${BUILD_NUMBER}.zip -oC:\\webapps\\iViews_2.2\\iviewsenterprise\\iViews.Enterprise -y -r',
+                       execTimeout: 0, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       
+		       sleep(120)
+		       
+		       }
+		       }
+		       
+		       
+       		       
+	stage("Iviews.Enterprise Config update"){
+            steps{	       
+                      sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,  
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\webapps\\iViews_2.2\\iViews-deployment\\iViews.Enterprise\\* C:\\webapps\\iViews_2.2\\iviewsenterprise\\iViews.Enterprise\\    -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       
+		       sleep(15)
+                         
+	        }
+        }
+        stage("IIS Reset/Recyle"){
+            steps{
+                echo "====++++executing IIS Reset/Recyle++++===="
+                    sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe recycle APPPOOL "iViews12.2"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:iViews12.2',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start site /site.name:iViews12.2',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                            Build successfuly deployed to Dev Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com,bhim@zibal.com,vishal@zibal.com,shivesh@zibal.com'    
+            }
+            post{
+                always{
+                    echo "====++++always++++===="
+                }
+                success{
+                    echo "====++++IIS Reset/Recyle executed successfully++++===="
+                }
+                failure{
+                    echo "====++++IIS Reset/Recyle execution failed++++===="
+                }
+        
+            }
+        }
+        stage("Apply IMS DB Changes"){
+            steps{
+                echo "====++++executing Apply DB Changes++++===="
+             //   input(message: 'Aprrove?', ok: 'Yes', submitter: 'anshuman,bhim')
+                withCredentials([usernamePassword(credentialsId: 'IMSContext', passwordVariable: 'dbPass', usernameVariable: 'dbUser')]) {
+                    sshPublisher(publishers: [sshPublisherDesc(
+                                configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                                sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                                transfers: [sshTransfer(cleanRemote: false, 
+                                excludes: '', 
+                                execCommand: "Powershell sqlcmd -s EC2AMAZ-IJ65LPU -U ${dbUser} -P ${dbPass} -d IMS -i C:\\webapps\\iViews_2.2\\iviewsenterprise\\IMS\\DatabaseChanges.sql -o c:\\webapps\\jenkins\\IMS.txt",
+                                execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                                noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                                )], 
+                                usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                }
+
+            }
+            post{
+                always{
+                    echo "====++++always++++===="
+                }
+                success{
+                    echo "====++++Apply DB Changes executed successfully++++===="
+                }
+                failure{
+                    echo "====++++Apply DB Changes execution failed++++===="
+                }
+        
+            }
+        }
+        stage("Apply iViews.Enterprise DB Changes"){
+            steps{
+                echo "====++++executing Apply DB Changes++++===="
+               // input(message: 'Aprrove?', ok: 'Yes', submitter: 'anshuman,bhim')
+                withCredentials([usernamePassword(credentialsId: 'iViewsDbContext', passwordVariable: 'dbPass', usernameVariable: 'dbUser')]) {
+                    sshPublisher(publishers: [sshPublisherDesc(
+                                configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                                sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                                transfers: [sshTransfer(cleanRemote: false, 
+                                excludes: '', 
+                                execCommand: "Powershell sqlcmd -s EC2AMAZ-IJ65LPU -U ${dbUser} -P ${dbPass} -d IVIEWS -i C:\\webapps\\iViews_2.2\\iviewsenterprise\\iViews.Enterprise\\DatabaseChanges.sql -o c:\\webapps\\jenkins\\iviewsenterprise.txt",
+                                execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                                noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                                )], 
+                                usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                              //emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                                // Build deployed to Dev Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'bhim@zibal.com,vishal@zibal.com,shivesh@zibal.com,amitsharma@zibal.com'
+                }
+
+            }
+            post{
+                always{
+                    echo "====++++always++++===="
+                }
+                success{
+                    echo "====++++Apply DB Changes executed successfully++++===="
+                }
+                failure{
+                    echo "====++++Apply DB Changes execution failed++++===="
+                }
+        
+            }
+        }
+      }  
+    post{  
+            always{  
+	            cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+	          
+                    emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                    Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'bhim@zibal.com,vishal@zibal.com,shivesh@zibal.com,amitsharma@zibal.com'      
+	              }      
+            failure{  
+                        emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                        Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com,bhim@zibal.com,vishal@zibal.com,shivesh@zibal.com,amitsharma@zibal.com'      
+	  
+                    
+                    }
+    
+    }
+}

@@ -1,0 +1,153 @@
+node("DEV-1") {
+    
+    environment {
+
+        PROJECT_NAME = 'rigil-rocks'
+        PROJECT_SOLUTION_NAME= 'Resume.sln'
+        
+       }
+   
+    stage('Validating Build Number') { // for display purposes
+      def mvnHome
+        def jenkins = Jenkins.getInstance()
+        def jobName = "Rigil-Rocks"
+        def job = jenkins.getItem(jobName)
+        def BuildNo = "${BUILD_NUMBER}"
+
+        def allbuild = "${job.getBuilds().collect{ it.getNumber()}}"
+        if(allbuild.contains(BuildNo)){
+            println "We found the build number entered by you in the build history: ${BuildNo}"
+          
+        } 
+        else 
+        {
+            println "No build number was found "
+            
+            emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+               Build is failed due to incorrect build number.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - FAILED!',to: 'manish@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'
+            error("Build failed because of this and that..")
+      }
+        
+        
+    }
+
+    stage('Rollback to Dev') {
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgHH7/Lz3y2vMo0U39zIdDQlx358LKCJF3usv/sTOliMWez3o+/1569lHkV+e8qHaA}', key: '', keyPath: '', username: 'Manish'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Remove-Item -Path C:\\webapps\\jenkins\\rollback\\rigil-rocks.zip -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Remove-Item -Path C:\\webapps\\jenkins\\rollback\\dev\\* -Recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/rigil-rocks/backup/${BUILD_NUMBER}/rigil-rocks.zip   C:\\webapps\\jenkins\\rollback",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Expand-Archive -Path C:\\webapps\\jenkins\\rollback\\rigil-rocks.zip -DestinationPath C:\\webapps\\jenkins\\rollback\\ -F",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+		       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\webapps\\jenkins\\rollback\\dev\\* C:\\webapps\\Rigil.Rocks\\dev\\  -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                       
+                       }
+                       
+                       
+     stage('Recylce-Refresh Dev-IIS') {
+
+                     sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgHH7/Lz3y2vMo0U39zIdDQlx358LKCJF3usv/sTOliMWez3o+/1569lHkV+e8qHaA}', key: '', keyPath: '', username: 'Manish'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe recycle APPPOOL "Rigil.Rocks"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:Rigil.Rocks',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start site /site.name:Rigil.Rocks',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                      
+		      emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                        Build is rollback to Dev Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'
+                  
+		  }
+   
+        
+        stage('Rollback to Test') {
+         
+                    input(message: 'Aprrove?', ok: 'Yes', submitter: 'smriti,bhim')
+                    echo 'Deploying to Test'
+                    sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgHH7/Lz3y2vMo0U39zIdDQlx358LKCJF3usv/sTOliMWez3o+/1569lHkV+e8qHaA}', key: '', keyPath: '', username: 'Manish'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\webapps\\jenkins\\rollback\\dev\\* C:\\webapps\\Rigil.Rocks\\test\\   -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+		       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+
+                        }
+         
+	stage('Recylce-Refresh Test IIS') {
+
+             
+                     sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgHH7/Lz3y2vMo0U39zIdDQlx358LKCJF3usv/sTOliMWez3o+/1569lHkV+e8qHaA}', key: '', keyPath: '', username: 'Manish'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe recycle APPPOOL "Rigil.Rocks"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:Rigil.Rocks',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start site /site.name:Rigil.Rocks',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                
+                   emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                    Build is rollback in Test Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'
+                  
+		  }
+
+    
+  }

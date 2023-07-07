@@ -1,0 +1,225 @@
+pipeline {
+    agent {
+        label 'DEV-1'
+    }
+    environment {
+
+        PROJECT_NAME = 'ITAR-API'
+        PROJECT_SOLUTION_NAME= 'ITAR_API.sln'
+        
+    }
+    stages {
+        stage('Clean Ws') {
+	  steps {
+	     cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+	     
+	     }
+	     }
+   
+        stage('Cloning the repo from the github') {
+            steps {
+
+                checkout([
+                     $class: 'GitSCM', 
+			branches: [[name: "${params.Code_Branch}"]], 
+                        doGenerateSubmoduleConfigurations: false, 
+                        extensions: [], 
+                        submoduleCfg: [], 
+                        userRemoteConfigs: [
+                            [
+                                credentialsId: '5229a6f9-8c35-40b6-aa3d-609c769a31c6', 
+                                url: 'https://github.com/RigilCorp/ITAR-API.git'
+                            ]
+                        ]
+                ])
+            }
+        } 
+	    stage('Restore packages') {
+
+          steps {
+	    bat 'powershell Remove-Item -Path "C:\\ITAR-API-Publish\\*" -Recurse '
+            bat  "dotnet restore  ${PROJECT_SOLUTION_NAME}"
+            
+
+            }
+        }
+       
+        stage('Publish Build') {
+
+          steps {
+	         //bat "curl -I https://dev-stratagem-api.rigilites.net/api/v1/start"
+		 bat "curl -G \"https://yecuk12wyh.execute-api.us-east-1.amazonaws.com/StartStop\" -d \"cluster=sonar-cluster&service=sonar_service&task=start\""
+   		 sleep 200   
+	         //bat "dotnet sonarscanner begin /k:ITAR-API /d:sonar.host.url=https://sonar.rigil.net  /d:sonar.login=d945c4ed90ecead98414fd597afae7aa757772f9"
+                 bat "dotnet sonarscanner begin /k:ITAR-API /d:sonar.host.url=http://sonar-load-balancer-535199886.us-east-1.elb.amazonaws.com:9000  /d:sonar.login=020f171b9753e2b69accba756432f358486574b9"
+		 bat "dotnet publish -c Release -r win-x64 --self-contained false --output c:\\ITAR-API-Publish ${PROJECT_SOLUTION_NAME}"
+		 //bat "dotnet sonarscanner end /d:sonar.login=d945c4ed90ecead98414fd597afae7aa757772f9"
+		 bat "dotnet sonarscanner end /d:sonar.login=020f171b9753e2b69accba756432f358486574b9"
+		 //sleep 90
+		 //bat "curl -I https://dev-stratagem-api.rigilites.net/api/v1/stop"
+		 //bat "curl -G \"https://yecuk12wyh.execute-api.us-east-1.amazonaws.com/StartStop\" -d \"cluster=sonar-cluster&service=sonar_service&task=stop\""
+
+             }
+       
+        }
+	
+        stage('Remove appseting/config') {
+
+                steps {
+	
+                    bat "del C:\\ITAR-API-Publish\\web.config"
+                    bat "del C:\\ITAR-API-Publish\\appsettings.json"
+                    bat "del C:\\ITAR-API-Publish\\appsettings.Development.json"
+                    }
+        }     
+        stage('Archiving the Build Artifact') {
+
+                steps {
+		    dir('C:\\Project-Build\\')
+                    {
+                       bat "C:\\7-Zip\\7z.exe a  ${PROJECT_NAME}-${env.BUILD_NUMBER}.zip  C:\\ITAR-API-Publish\\*"
+                    }
+                    
+                    dir('C:\\archive\\ITAR\\')
+                    {
+                       bat "C:\\7-Zip\\7z.exe a  ${PROJECT_NAME}-${env.BUILD_NUMBER}.zip  C:\\ITAR-API-Publish\\*"
+                    }
+
+                }
+        }
+
+        stage('S3 publisher') {
+                steps{
+                             
+			      withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', credentialsId: 'aws-s3-cred', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+
+                               bat "aws s3 ls"
+                               bat "aws s3 cp C:\\archive\\ITAR\\${PROJECT_NAME}-${env.BUILD_NUMBER}.zip  s3://rigil-aws-devops-staging-s3-bucket/ITAR-API/upload/"
+                             }
+
+	         }
+	    }
+	stage('IIS site stop') {
+                
+                steps {
+		   
+		 
+                     sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:iViews12.2',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+		       sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop APPPOOL "ITAR_api"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+		       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       
+		       sleep(55)
+		       }
+		       }
+                      
+		       
+        stage('Deploy to Dev') {
+                
+                steps {
+          
+                     sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/ITAR-API/upload/ITAR-API-${BUILD_NUMBER}.zip   C:\\webapps\\jenkins\\ITAR\\ITAR-API",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+		       sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:iViews12.2',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+		       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'Powershell Compress-Archive -Path C:\\webapps\\iViews_2.2\\ITAR\\api -DestinationPath C:\\webapps\\backup-pipeline\\ITAR\\ITAR-API\\ITAR-API.zip -F',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp C:\\webapps\\backup-pipeline\\ITAR\\ITAR-API\\ITAR-API.zip s3://rigil-aws-devops-staging-s3-bucket/ITAR-API/backup/${env.BUILD_NUMBER}/ ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Expand-Archive -Path C:\\webapps\\jenkins\\ITAR\\ITAR-API\\ITAR-API-${BUILD_NUMBER}.zip -DestinationPath C:\\webapps\\iViews_2.2\\ITAR\\api -F",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\webapps\\iViews_2.2\\ITAR-deployment\\ITAR-API\\* C:\\webapps\\iViews_2.2\\ITAR\\api\\   -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+	               )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                      
+                        emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                          Build deployed to Dev Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'amitsharma@zibal.com,bhim@zibal.com,vishal@zibal.com,shivesh@zibal.com,santosh@zibal.com'
+                }
+                  
+	  }
+        stage('IIS site start') {
+                
+                steps {
+          
+                     sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start APPPOOL "ITAR_api"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+		       ),
+		       sshTransfer(cleanRemote: false, 
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start site /site.name:iViews12.2',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       
+		       }
+		       }	  
+	  
+   
+      }    
+   
+    post{  
+            always{ 
+	            cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+                    emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                    Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'amitsharma@zibal.com,bhim@zibal.com,vishal@zibal.com,shivesh@zibal.com,santosh@zibal.com'      
+	              }
+                
+            failure{  
+                        emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                        Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'amitsharma@zibal.com,bhim@zibal.com,vishal@zibal.com,shivesh@zibal.com,santosh@zibal.com'      
+	  
+                    
+                    }
+    
+   }
+    
+}
+

@@ -1,0 +1,251 @@
+pipeline {
+    agent {
+        label 'DEV-1'
+    }
+	
+    environment {
+        PROJECT_NAME = ' Prod-RR-DB-Files-Backup'
+    }
+    stages {
+        stage("Backup FOSD Files and uploading on s3"){
+            steps{
+                echo "====++++executing FOSD Files Backup++++===="
+		       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,   
+                       excludes: '', 
+                       execCommand: 'Powershell Compress-Archive -Path C:\\FOSD\\Library -DestinationPath C:\\Backup-Folder\\FilesZip\\FOSDLibrary.zip -F',
+                       execTimeout: 360000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		               usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		               sleep(5)
+				
+				
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp C:\\Backup-Folder\\FilesZip\\FOSDLibrary.zip s3://rigil-aws-devops-staging-s3-bucket/RRBackupPROD/RR-Files-Backup/${env.BUILD_NUMBER}/ ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(15)
+            }
+            post{
+                always{
+                    echo "====++++always++++===="
+                }
+                success{
+                    echo "====++++A executed successfully++++===="
+                }
+                failure{
+                    echo "====++++A execution failed++++===="
+                }
+        
+            }
+        }
+		
+		stage("Backup RR Files and uploading on s3"){
+            steps{
+                echo "====++++executing RR Files Backup++++===="
+		       //sshPublisher(publishers: [sshPublisherDesc(
+                       //configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807', 
+                       //sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       //transfers: [sshTransfer(cleanRemote: false,   
+                       //excludes: '', 
+                       //execCommand: 'Powershell Compress-Archive -Path C:\\Library\\Library -DestinationPath C:\\Backup-Folder\\FilesZip\\RRLibrary.zip -F',
+                       //execTimeout: 360000, flatten: false, makeEmptyDirs: false,
+                       //noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       //)],
+		               //usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		               //sleep(5)
+				
+				
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp C:\\Library\\Library\\ s3://rigil-aws-devops-staging-s3-bucket/RRBackupPROD/RR-Files-Backup/${env.BUILD_NUMBER}/RRLibrary/ --recursive ",
+					   execTimeout: 1920000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(15)
+            }
+            post{
+                always{
+                    echo "====++++always++++===="
+                }
+                success{
+                    echo "====++++A executed successfully++++===="
+                }
+                failure{
+                    echo "====++++A execution failed++++===="
+                }
+        
+            }
+        }
+		
+		stage("Backup UDC Files and uploading on s3"){
+            steps{
+                echo "====++++executing UDC Files Backup++++===="
+		       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,   
+                       excludes: '', 
+                       execCommand: 'Powershell Compress-Archive -Path C:\\Webapps\\UDC\\API\\Resources -DestinationPath C:\\Backup-Folder\\FilesZip\\UDCLibrary.zip -F',
+                       execTimeout: 360000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		               usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		               sleep(5)
+				
+				
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp C:\\Backup-Folder\\FilesZip\\UDCLibrary.zip s3://rigil-aws-devops-staging-s3-bucket/RRBackupPROD/RR-Files-Backup/${env.BUILD_NUMBER}/ ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(15)
+            }
+            post{
+                always{
+                    echo "====++++always++++===="
+                }
+                success{
+                    echo "====++++A executed successfully++++===="
+                }
+                failure{
+                    echo "====++++A execution failed++++===="
+                }
+        
+            }
+        }
+		
+		stage("Backup UDC-Simplira Files and uploading on s3"){
+            steps{
+                echo "====++++executing UDC-Simplira Files Backup++++===="
+		       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,   
+                       excludes: '', 
+                       execCommand: 'Powershell Compress-Archive -Path C:\\Webapps\\UDCKeycloak\\API\\Resources -DestinationPath C:\\Backup-Folder\\FilesZip\\UDC-SIMP-Library.zip -F',
+                       execTimeout: 360000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		               usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		               sleep(5)
+				
+				
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp C:\\Backup-Folder\\FilesZip\\UDC-SIMP-Library.zip s3://rigil-aws-devops-staging-s3-bucket/RRBackupPROD/RR-Files-Backup/${env.BUILD_NUMBER}/ ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(15)
+            }
+            post{
+                always{
+                    echo "====++++always++++===="
+                }
+                success{
+                    echo "====++++A executed successfully++++===="
+                }
+                failure{
+                    echo "====++++A execution failed++++===="
+                }
+        
+            }
+        }
+
+
+        stage("Db backup and uploading on s3"){
+            steps{
+                     echo "====++++Executing DB Backup++++===="
+                       //sshPublisher(publishers: [sshPublisherDesc(
+                       //configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807', 
+                       //sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       //transfers: [sshTransfer(cleanRemote: false,   
+                       //excludes: '', 
+                       //execCommand: 'Powershell Compress-Archive -Path C:\\Backup-Folder\\DbBackup -DestinationPath C:\\Backup-Folder\\DbBackup\\DbBackup.zip -F',
+                       //execTimeout: 360000, flatten: false, makeEmptyDirs: false,
+                       //noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       //)],
+		               //usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		               //sleep(5)
+
+                      sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+					   execCommand: "aws s3 cp C:\\Backup-Folder\\DbBackup\\ s3://rigil-aws-devops-staging-s3-bucket/RRBackupPROD/RR-DB-backup/${env.BUILD_NUMBER}/DbBackup/ --recursive ",
+                       execTimeout: 360000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       sleep(15)
+			       
+		       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Remove-Item -Path C:\\Backup-Folder\\DbBackup\\* -Recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+		       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])	
+		       
+		       }
+			   post{
+                always{
+                    echo "====++++always++++===="
+                }
+                success{
+                    echo "====++++A executed successfully++++===="
+                }
+                failure{
+                    echo "====++++A execution failed++++===="
+                }
+        
+            }
+		}
+		       
+   }	
+ 
+    post{  
+            always{  
+	            cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+	          
+                    emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                    Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com,Anshuman@rigil.com,bhim@zibal.com,sonu@zibal.com,ankit@rigil.com'      
+	              }      
+            failure{  
+                        emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                        Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com,Anshuman@rigil.com,bhim@zibal.com,sonu@zibal.com,ankit@rigil.com'      
+	  
+                    
+                    }
+    
+    }
+ }

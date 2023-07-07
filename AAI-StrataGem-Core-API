@@ -1,0 +1,65 @@
+pipeline {
+  agent{
+  label {
+        label "slave-linux"
+  }
+}
+
+  stages {
+  stage('cleanws') {
+            steps {
+                // Clean before build
+                cleanWs()
+                // We need to explicitly checkout from SCM here
+                //checkout scm
+                echo "Building ${env.JOB_NAME}..."
+            }
+        }
+    stage('gitclone') {
+      steps {
+        git branch: 'Dev', credentialsId: '5229a6f9-8c35-40b6-aa3d-609c769a31c6', url: 'https://github.com/RigilCorp/StrataGem-Core-API.git'
+       //sh 'mvn clean package'
+
+      }
+    }
+
+        stage('Build') {
+            steps {
+
+                sh 'mvn clean package -DJASYPT_ENCRYPTOR_PASSWORD=Rigil123## -Dbuild.number=${BUILD_NUMBER} -Dbuild.revision="Commit $(git rev-parse HEAD)"  -Dbuild.unknown=Jenkins -Dbuild_timestamp=$(date +%F-%T)'
+               }
+        }
+            stage('Copy Artifacts to S3') {
+                steps {
+                      sh 'aws s3 ls'
+                      sh "aws s3 cp /home/jenkins/workspace/AAI-StrataGem-Core-API/target/stratagem-core-api.war s3://rigil-aws-devops-staging-s3-bucket/StratagemAPI-AAI/upload/${BUILD_NUMBER}"
+                }
+            }
+			//stage('deploy on tomcat') {
+                //steps {
+                    //sshPublisher(publishers: [sshPublisherDesc(configName: 'dev123.rigil.net', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: '', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: './tomcat/current/webapps/', remoteDirectorySDF: false, removePrefix: 'target/', sourceFiles: '**/*.war')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+                //}
+            //}
+            stage(deleteDir) {
+              steps {
+                //Clean before build
+                cleanWs()
+                //We need to explicitly checkout from SCM here
+                //checkout scm
+                echo "Building ${env.JOB_NAME}..."
+
+            }
+        }
+  }
+        post {  
+         
+        always {
+                   cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true   
+		   
+                   emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                   Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'sonu@zibal.com,santosh@zibal.com'
+}
+}
+}
+

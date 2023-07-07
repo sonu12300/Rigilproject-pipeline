@@ -1,0 +1,205 @@
+pipeline {
+    agent {
+        label 'DEV-1'
+    }
+     
+    environment {
+
+        PROJECT_NAME = 'Sam-Utility'
+        
+        
+    }
+    stages{
+      
+         stage('IIS Site Stop') {
+                
+                 steps {
+                  
+		      sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:SAM_API',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+		       sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop APPPOOL "SAM_API"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+		       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       
+		       sleep(55)
+                       }
+                       }
+                       
+                // Give time for IIS to release hold files
+                    
+		
+                 
+
+         stage('Code Backup') {
+                
+                 steps {
+                  
+                    sshPublisher(publishers: [sshPublisherDesc(
+                      configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                      sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+                       excludes: '', 
+                       execCommand: "Powershell Remove-Item -Path C:\\webapps\\jenkins\\backup-pipeline\\Sam-Utility\\Sam-Utility.zip -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Remove-Item -Path C:\\webapps\\jenkins\\backup-build\\Sam-Utility\\* -Recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+                       )],
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                       sleep(10)
+                       
+                       //backup
+                       
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\Webapps\\samapi\\publish\\* C:\\Webapps\\jenkins\\backup-build\\Sam-Utility\\  -recurse -Force ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                       sleep(5)
+                       
+                       //backup-build to backup-pipeline
+                       
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+                       excludes: '', 
+                       execCommand: 'Powershell Compress-Archive -Path C:\\Webapps\\jenkins\\backup-build\\Sam-Utility\\ -DestinationPath C:\\Webapps\\jenkins\\backup-pipeline\\Sam-Utility\\Sam-Utility.zip -F',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                       sleep(5)
+                       
+                       //backup to s3
+                       
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp C:\\Webapps\\jenkins\\backup-pipeline\\Sam-Utility\\Sam-Utility.zip s3://rigil-aws-devops-staging-s3-bucket/Sam-Utility/prod-backup/${env.BUILD_NUMBER}/ ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                       sleep(5)
+                      
+                }
+                  
+	  }    
+
+            
+         stage('Deploy Code to Server') {
+                
+                 steps {
+                  
+                    sshPublisher(publishers: [sshPublisherDesc(
+                      configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                      sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/Sam-Utility/upload/Sam-Utility-${BUILD_NUMBER}.zip   C:\\Webapps\\jenkins\\code-build\\Sam-Utility",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c  C:\\webapps\\jenkins\\7-Zip\\7z.exe x  C:\\Webapps\\jenkins\\code-build\\Sam-Utility\\Sam-Utility-${BUILD_NUMBER}.zip -oC:\\Webapps\\samapi\\publish -y -r',
+                      execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                       sleep(10)
+                       
+                      
+                }
+                  
+	     }
+	     
+         stage('Config update') {
+               steps {
+                      sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\Webapps\\jenkins\\config\\Sam-Utility\\* C:\\Webapps\\samapi\\publish\\   -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                      
+                      emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                       Build deployed to Prod Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com'
+         }
+       }
+
+
+                  
+		
+        
+    	   stage('Recylce-Refresh Dev-IIS') {
+
+                  steps {
+                       sshPublisher(publishers: [sshPublisherDesc(
+                      configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                      sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start site /site.name:SAM_API',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+		       sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start APPPOOL "SAM_API"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+		       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       
+		      sleep(15)
+                  
+	      }
+         
+         }
+}
+post{  
+            always{  
+	                 cleanWs deleteDirs: true, disableDeferredWipeout: false, notFailBuild: true
+                    emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                    Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com'      
+	              }
+                
+            failure{  
+                        emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                        Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com'      
+	  
+                    
+                    }
+    
+   }
+}

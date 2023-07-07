@@ -1,0 +1,61 @@
+pipeline {
+    agent {
+        label 'DEV-1'
+    }
+    environment {
+
+        PROJECT_NAME = 'UDC-APP'
+    }
+    stages {
+    
+        stage('Rollback to Dev') {
+                
+                steps {
+                   sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/UDC-APP/backup/${BUILD_NUMBER}/ C:\\webapps\\jenkins\\rollback\\UDC\\APP --recursive",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Expand-Archive -Path C:\\webapps\\jenkins\\rollback\\UDC\\APP\\UDC-APP.zip -DestinationPath C:\\webapps\\jenkins\\rollback\\UDC\\APP\\ -F",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		               ),
+		               sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\webapps\\jenkins\\rollback\\UDC\\APP\\APP\\* C:\\webapps\\UDC\\APP\\  -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                      emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                        Build deployed to Dev Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'
+                    
+
+                  
+			  }
+                  
+			  }
+    }
+    post {  
+         always {  
+                   emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                   Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'
+          
+         } 
+
+         failure {  
+                    emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                    Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'      
+	 }
+    }
+    
+  }
+      

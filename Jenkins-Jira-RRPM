@@ -1,0 +1,194 @@
+pipeline {
+    agent {
+        label 'DEV-1'
+    }
+    environment {
+
+        PROJECT_NAME = 'Jira-RRPM'
+        PROJECT_SOLUTION_NAME= 'JiraProjectManagement.sln'
+        DATE_TAG = System.currentTimeMillis();
+    }
+    stages {
+        stage('Clean Ws') {
+	   steps {
+	      cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+	     
+	     }
+	     }
+   
+        stage('Cloning the repo from the github') {
+            steps {
+
+                checkout([
+                     $class: 'GitSCM', 
+			branches: [[name: "*/main"]], 
+                        doGenerateSubmoduleConfigurations: false, 
+                        extensions: [[$class: 'CleanBeforeCheckout']], 
+                        submoduleCfg: [], 
+                        userRemoteConfigs: [
+                            [
+                                credentialsId: '5229a6f9-8c35-40b6-aa3d-609c769a31c6', 
+                                url: 'https://github.com/RigilCorp/Jira-RRPM.git'
+                            ]
+                        ]
+                ])
+            }
+        } 
+	    stage('Restore packages') {
+
+          steps {
+	    bat 'powershell Remove-Item -Path "C:\\Jira-RRPM-Publish\\*" -Recurse '
+            bat  "C:\\Nuget\\nuget.exe restore ${PROJECT_SOLUTION_NAME}"
+            
+
+            }
+        }
+        stage('Build Solutions') {
+
+          steps {
+             bat "c:\\jenkins-slave\\jirapm.bat"
+
+            }
+        }
+        stage('Publish Website') {
+
+                steps {
+                    
+                    bat "msbuild .//JiraProjectManagement//JiraProjectManagement.csproj /p:Configuration=Release ^ /p:Platform=AnyCPU ^ /t:WebPublish ^ /p:WebPublishMethod=FileSystem ^/p:DeleteExistingFiles=True ^ /p:publishUrl=C:\\Jira-RRPM-Publish"
+
+                    }
+        }
+        stage('Remove appseting/config') {
+
+                steps {
+                    
+               //     bat "del  C:\\Jira-RRPM-Publish\\ConnectionStrings.config"
+               //     bat "del  C:\\Jira-RRPM-Publish\\AppSettings.config"
+                    bat "del  C:\\Jira-RRPM-Publish\\Web.config"
+                    
+
+                    }
+        }
+        stage('Archiving the Build Artifact') {
+
+                steps {
+                    
+                    dir('C:\\archive\\Jira-RRPM\\')
+                    {
+                       bat "C:\\7-Zip\\7z.exe a  ${PROJECT_NAME}-${env.BUILD_NUMBER}.zip  C:\\Jira-RRPM-Publish\\*"
+                    }
+
+                }
+        }
+
+        stage('S3 publisher') {
+                steps{
+                             
+			      withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', credentialsId: 'aws-s3-cred', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+
+                               
+                               bat "aws s3 cp C:\\archive\\Jira-RRPM\\${PROJECT_NAME}-${env.BUILD_NUMBER}.zip  s3://rigil-aws-devops-staging-s3-bucket/Jira-RRPM/upload/"
+                              
+                             }
+
+	         }
+	    }
+         
+        
+        stage('Deploy to Dev') {
+                
+                steps {
+                  
+               // withCredentials([usernamePassword(credentialsId: 'Rigil-Rock-Database-Dev', passwordVariable: 'dbPass', usernameVariable: 'dbUser')]) {
+
+                    sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/Jira-RRPM/upload/Jira-RRPM-${BUILD_NUMBER}.zip   C:\\webapps\\jenkins\\Jira-RRPM",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'Powershell Compress-Archive -Path C:\\webapps\\jirapm -DestinationPath C:\\webapps\\backup-pipeline\\Jira-RRPM\\Jira-RRPM.zip -F',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp C:\\webapps\\backup-pipeline\\Jira-RRPM\\Jira-RRPM.zip s3://rigil-aws-devops-staging-s3-bucket/Jira-RRPM/backup/${env.BUILD_NUMBER}/ ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Expand-Archive -Path C:\\webapps\\jenkins\\Jira-RRPM\\Jira-RRPM-${BUILD_NUMBER}.zip -DestinationPath C:\\webapps\\jirapm -F",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\webapps\\jira-deployment\\* C:\\webapps\\jirapm\\   -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                      
+                        emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                          Build deployed to Dev Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com'
+                   }
+                  
+		  }
+                  
+		
+        
+    	stage('Recylce-Refresh Dev-IIS') {
+
+             steps {
+                     sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe recycle APPPOOL "jirapm"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:jirapm',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start site /site.name:jirapm',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                  
+                  
+			  }
+         
+        }
+       
+    }
+    post {  
+         always {  
+                   emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                   Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com'
+          
+         } 
+
+        
+         failure {  
+                    emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                    Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com'      
+	    }
+    }
+  }

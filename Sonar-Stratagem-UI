@@ -1,0 +1,55 @@
+pipeline {
+    agent {
+        label 'DEV-1'
+    }
+    stages{
+        
+        stage('Clean Ws') {
+	         steps {
+	             cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+	     
+	           }
+	           }
+        stage('Cloning the repo from the github') {
+            steps {
+
+                checkout([
+                     $class: 'GitSCM', 
+		      	branches: [[name: "dev"]], 
+                        doGenerateSubmoduleConfigurations: false, 
+                        extensions: [], 
+                        submoduleCfg: [], 
+                        userRemoteConfigs: [
+                            [
+                                credentialsId: '5229a6f9-8c35-40b6-aa3d-609c769a31c6', 
+                                url: 'https://github.com/RigilCorp/StrataGem-Core-UI'
+                            ]
+                        ]
+                ])
+            }
+            
+        } 
+        stage('Sonar Run') {
+                
+             steps {
+                    //bat "curl -I https://dev-stratagem-api.rigilites.net/api/v1/start"
+		    bat "curl -G \"https://yecuk12wyh.execute-api.us-east-1.amazonaws.com/StartStop\" -d \"cluster=sonar-cluster&service=sonar_service&task=start\""
+		    sleep 240
+                    bat "npm install"
+                    bat "npm run lint --force"
+                    bat "npm run build --prod --aot=false --build-optimizer=false"
+                    //bat 'C:\\sonar-scanner\\bin\\sonar-scanner.bat -D"sonar.projectKey=StrataGem-Core-UI" -D"sonar.sources=."  -D"sonar.coverage.jacoco.xmlReportPaths=jacoco.xml"  -D"sonar.exclusions=dist/*,node_modules/*,**/*.css,**/*.scss,**/*.html,**/*.png,**/*.jpeg,**/*.php,**/*.svg,**/*.sh" -D"sonar.host.url=https://sonar.rigil.net" -D"sonar.login=6aa66d485b9804d570b0a91cfe4ea9f655342d92"'
+                    bat 'C:\\sonar-scanner\\bin\\sonar-scanner.bat -D"sonar.projectKey=StrataGem-Core-UI" -D"sonar.sources=."  -D"sonar.coverage.jacoco.xmlReportPaths=jacoco.xml"  -D"sonar.exclusions=dist/*,node_modules/*,**/*.css,**/*.scss,**/*.html,**/*.png,**/*.jpeg,**/*.php,**/*.svg,**/*.sh" -D"sonar.host.url=http://sonar-load-balancer-535199886.us-east-1.elb.amazonaws.com:9000" -D"sonar.login=b6c0789996290cb83107f3647290e1b2d63e1f8e"'
+                    //sleep 60
+		    //bat "curl -I https://dev-stratagem-api.rigilites.net/api/v1/stop"
+		    //bat "curl -G \"https://yecuk12wyh.execute-api.us-east-1.amazonaws.com/StartStop\" -d \"cluster=sonar-cluster&service=sonar_service&task=start\""
+               }
+        }
+        stage('Clean x') {
+	         steps {
+	             cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true
+	     
+	           }
+	           }
+   }
+}

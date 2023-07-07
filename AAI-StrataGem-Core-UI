@@ -1,0 +1,88 @@
+pipeline {
+  agent {
+  label {
+        label "slave-linux"
+        
+  }
+}
+  stages {    
+  stage('cleanws') {
+            steps {
+                // Clean before build
+                cleanWs()
+                // We need to explicitly checkout from SCM here
+                //checkout scm
+                //echo "Building ${env.JOB_NAME}..."
+            }
+        }
+    stage('gitclone') {
+      steps {
+        git branch: 'Dev', credentialsId: '5229a6f9-8c35-40b6-aa3d-609c769a31c6', url: 'https://github.com/RigilCorp/StrataGem-Core-UI.git'
+        
+      }
+    }
+    //stage('sonarqube Scanning') {
+      //steps {
+        //withSonarQubeEnv('sonarqube9.9') {
+    // some block
+    //sh 'mvn clean verify sonar:sonar -Dsonar.projectKey=sonarview -Dsonar.host.url=http://3.111.114.11:9000 -Dsonar.login=sqp_c79231482bd2be6b58da789f242eae83cb48eb9d'
+   // }
+      //}
+    //}
+    stage('nodejs') {
+            steps {
+                nodejs('node-14.17.1') {
+    // some block
+                }
+            }
+}
+        
+        stage('Build') {
+            steps {
+                sh 'node --version'
+                sh 'npm --version'
+                sh 'sed -i "s/BUILD_NUMBER/$BUILD_NUMBER/g" src/assets/config/buildInfo.ts'
+                sh 'sed -i "s/BUILD_TIMESTAMP/$BUILD_TIMESTAMP/g" src/assets/config/buildInfo.ts'
+                sh 'npm install'
+                sh 'npm run lint --force'
+                sh 'npm run build --prod --aot=true --build-optimizer=false'                
+            }
+        }
+		 stage('Copy Artifacts to S3') {
+                steps {
+                    sh 'aws configure set aws_access_key_id AKIAUIVVBAWVXLHWKPN3'
+                    sh 'aws configure set aws_secret_access_key 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'
+                    sh 'aws s3 ls'
+                    sh 'zip -r /home/jenkins/workspace/AAI-StrataGem-Core-UI/dist.zip /home/jenkins/workspace/AAI-StrataGem-Core-UI/dist'
+                    
+                    sh "aws s3 cp /home/jenkins/workspace/AAI-StrataGem-Core-UI/dist.zip s3://rigil-aws-devops-staging-s3-bucket/StratagemUI-AAI/upload/${BUILD_NUMBER}"
+                }
+            }
+			
+            //stage('deploy on tomcat') {
+                //steps {
+                     //sshPublisher(publishers: [sshPublisherDesc(configName: 'dev.rigil.net', transfers: [sshTransfer(cleanRemote: false, excludes: '', execCommand: '', execTimeout: 120000, flatten: false, makeEmptyDirs: false, noDefaultExcludes: false, patternSeparator: '[, ]+', remoteDirectory: './tomcat/current/webapps/ROOT/stratagem/', remoteDirectorySDF: false, removePrefix: 'dist/', sourceFiles: 'dist/**')], usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: false)])
+                     //}
+                //}
+            stage(deleteDir) {
+              steps {
+                // Clean before build
+                cleanWs()
+                // We need to explicitly checkout from SCM here
+                //checkout scm
+                echo "Building ${env.JOB_NAME}..."
+            }
+        }
+  }
+         post {  
+         
+        always {
+                   cleanWs deleteDirs: true, disableDeferredWipeout: true, notFailBuild: true   
+		   
+                   emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                   Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'sonamkapoor13321244@gmail.com'
+}
+}
+}
+ 

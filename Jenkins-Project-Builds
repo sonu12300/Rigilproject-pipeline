@@ -1,0 +1,20 @@
+node("DEV-1") {
+       
+
+    stage('Move build to s3') { 
+        
+            withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AWS_ACCESS_KEY_ID', credentialsId: 'aws-s3-cred', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                            if (params.PROJECT_NAME == 'Iviews-Enter') {
+            bat "aws s3 cp C:\\Project-Build\\iViews-${params.BUILD_NUMBER}.zip  s3://rigil-aws-devops-staging-s3-bucket/Production-Release/${params.PROJECT_NAME}/iViews/"
+            bat "aws s3 cp C:\\Project-Build\\IMS-${params.BUILD_NUMBER}.zip  s3://rigil-aws-devops-staging-s3-bucket/Production-Release/${params.PROJECT_NAME}/IMS/"
+            bat "aws s3 cp C:\\Project-Build\\iViews.Enterprise-${params.BUILD_NUMBER}.zip  s3://rigil-aws-devops-staging-s3-bucket/Production-Release/${params.PROJECT_NAME}/iViews.Enterprise/"
+        } else {
+            bat "aws s3 cp C:\\Project-Build\\${params.PROJECT_NAME}-${params.BUILD_NUMBER}.zip  s3://rigil-aws-devops-staging-s3-bucket/Production-Release/${params.PROJECT_NAME}/"
+        }
+    }
+           emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                          Build deployed to s3 Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com,Anshuman@rigil.com,bhim@zibal.com'    
+        
+    }
+        
+    }

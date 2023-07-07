@@ -1,0 +1,227 @@
+pipeline {
+    agent {
+        label 'DEV-1'
+    }
+     parameters {
+       // string(name: 'PERSON', defaultValue: 'Mr Jenkins', description: 'Who should I say hello to?')
+       string(name: 'Build_Number', defaultValue: '', description: 'Enter a Build Number')
+       string(name: 'Build_Password', defaultValue: '', description: 'Enter a password')
+        
+    }
+    environment {
+
+        PROJECT_NAME = 'UDC-API'
+        
+        
+    }
+    stages{
+            stage('Authenticate yourself') {
+                
+                steps {
+                        
+                     
+                            script{
+                                if("${params.Build_Password}"=="abcxyzXYZABCdefFED"){
+                                    echo " password is correct"
+                                } else{
+                                    echo " Incorrect"
+                                    throw new Exception()
+                                }
+                            }
+                     }
+                
+                }
+
+            
+            stage('IIS Site Stop') {
+                
+                 steps {
+                  
+		       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:UDC',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+		       sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop APPPOOL "UDC"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+		       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       
+		       sleep(55)
+                       }
+                       }
+                       
+                // Give time for IIS to release hold files
+                    
+		
+                 
+
+            stage('Code Backup') {
+                
+                 steps {
+                  
+                    sshPublisher(publishers: [sshPublisherDesc(
+                      configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                      sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+                       excludes: '', 
+                       execCommand: "Powershell Remove-Item -Path C:\\webapps\\jenkins\\backup-pipeline\\UDC-API\\UDC-API.zip -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Remove-Item -Path C:\\webapps\\jenkins\\backup-build\\UDC-API\\* -Recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+                       )],
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                       sleep(10)
+                       
+                       //backup
+                       
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\Webapps\\UDC\\API\\* C:\\Webapps\\jenkins\\backup-build\\UDC-API\\  -recurse -Force ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                       sleep(5)
+                       
+                       //backup-build to backup-pipeline
+                       
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+                       excludes: '', 
+                       execCommand: 'Powershell Compress-Archive -Path C:\\Webapps\\jenkins\\backup-build\\UDC-API\\ -DestinationPath C:\\Webapps\\jenkins\\backup-pipeline\\UDC-API\\UDC-API.zip -F',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )],
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                       sleep(5)
+                       
+                       //backup to s3
+                       
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp C:\\Webapps\\jenkins\\backup-pipeline\\UDC-API\\UDC-API.zip s3://rigil-aws-devops-staging-s3-bucket/UDC-API/prod-backup/${env.BUILD_NUMBER}/ ",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                       sleep(5)
+                      
+                }
+                  
+	  }    
+
+            
+            stage('Deploy Code to Server') {
+                
+                 steps {
+                  
+                    sshPublisher(publishers: [sshPublisherDesc(
+                      configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                      sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/UDC-API/upload/UDC-API-${BUILD_NUMBER}.zip   C:\\Webapps\\jenkins\\code-build\\UDC-API",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c  C:\\webapps\\jenkins\\7-Zip\\7z.exe x  C:\\Webapps\\jenkins\\code-build\\UDC-API\\UDC-API-${BUILD_NUMBER}.zip -oC:\\Webapps\\UDC\\API -y -r',
+                      execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                       sleep(10)
+                       
+                      
+                }
+                  
+	     }
+	     
+            stage('Config update') {
+               steps {
+                      sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\Webapps\\jenkins\\config\\UDC-API\\* C:\\Webapps\\UDC\\API\\   -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                      
+                      emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                       Build deployed to Prod Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'
+         }
+       }
+
+
+                  
+		
+        
+    	    stage('Recylce-Refresh Dev-IIS') {
+
+                  steps {
+                      sshPublisher(publishers: [sshPublisherDesc(
+                      configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                      sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAgvcjIYlN7YMAT9X37J+0jeHj3EEv5tmVLCKqxwhkjnEvAas/t6734cppq+a1fWud1}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start site /site.name:UDC',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+		       sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start APPPOOL "UDC"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       
+		       sleep(15)
+                  
+	      }
+         
+         }
+}
+post{  
+            always{  
+	            cleanWs deleteDirs: true, disableDeferredWipeout: false, notFailBuild: true
+                    emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                    Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'      
+	              }
+                
+            failure{  
+                        emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS:
+
+                        Check console output at $BUILD_URL to view the results.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'      
+	  
+                    
+                    }
+    
+   }
+}

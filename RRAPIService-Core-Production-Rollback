@@ -1,0 +1,128 @@
+node("DEV-1") {
+    
+    environment {
+
+        PROJECT_NAME = 'RRAPIService-Core'
+        PROJECT_SOLUTION_NAME= 'ResumeApiServiceCore.sln'
+        
+       }
+       
+    stage('Validating Build Number') { // for display purposes
+      def mvnHome
+        def jenkins = Jenkins.getInstance()
+        def jobName = "RRAPIService-Core"
+        def job = jenkins.getItem(jobName)
+        def BuildNo = "${BUILD_NUMBER}"
+
+        def allbuild = "${job.getBuilds().collect{ it.getNumber()}}"
+        if(allbuild.contains(BuildNo)){
+            println "We found the build number entered by you in the build history: ${BuildNo}"
+          
+        } 
+        else 
+        {
+            println "No build number was found "
+            
+            emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+               Build is failed due to incorrect build number.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - FAILED!',to: 'manish@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'
+            error("Build failed because of this and that..")
+       }
+        
+        
+    }  
+   
+    
+    
+    stage('IIS Site/Pool Stop') {
+                
+                 
+                  
+		      sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg2VrWWGuhRpJEzjUuSqlivXZpzGXryX+9J8E+wcdZUIeWzCF07seugLqRH/L3Vf3P}', key: '', keyPath: '', username: 'Manish'],
+                       transfers: [sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:RRService',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+		       sshTransfer(cleanRemote: false,
+		       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop APPPOOL "RRService"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+		       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       
+		       sleep(55)
+                       }
+		       
+     stage('Rollback to Prod') {
+     
+                       sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg2VrWWGuhRpJEzjUuSqlivXZpzGXryX+9J8E+wcdZUIeWzCF07seugLqRH/L3Vf3P}', key: '', keyPath: '', username: 'Manish'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Remove-Item -Path C:\\Webapps\\jenkins\\rollback\\RRAPIService-Core\\RRAPIService-Core.zip -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Remove-Item -Path C:\\webapps\\jenkins\\rollback\\RRAPIService-Core\\* -Recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/RRAPIService-Core/prod-backup/${BUILD_NUMBER}/RRAPIService-Core.zip   C:\\webapps\\jenkins\\rollback\\RRAPIService-Core",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Expand-Archive -Path C:\\webapps\\jenkins\\rollback\\RRAPIService-Core\\RRAPIService-Core.zip -DestinationPath C:\\webapps\\jenkins\\rollback\\RRAPIService-Core\\ -F",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+',
+		       ),
+		       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell copy-item C:\\webapps\\jenkins\\rollback\\RRAPIService-Core\\RRAPIService-Core\\* C:\\Webapps\\RRService\\ResumeAPIService\\  -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                       
+                       }
+                       		       
+		       
+     stage('IIS Site/Pool Start ') {
+
+                 
+                      sshPublisher(publishers: [sshPublisherDesc(
+                      configName: 'ec2-54-82-213-2.compute-1.amazonaws.com:43807',
+                      sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg2VrWWGuhRpJEzjUuSqlivXZpzGXryX+9J8E+wcdZUIeWzCF07seugLqRH/L3Vf3P}', key: '', keyPath: '', username: 'Manish'],
+                      transfers: [sshTransfer(cleanRemote: false,
+		      excludes: '', 
+                      execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start site /site.name:RRService',
+                      execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                      noDefaultExcludes: false, patternSeparator: '[, ]+',
+		      ),
+		      sshTransfer(cleanRemote: false,
+		      excludes: '', 
+                      execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start APPPOOL "RRService"',
+                      execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                      noDefaultExcludes: false, patternSeparator: '[, ]+', 
+		      )], 
+                      usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+		       
+		      emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                        Build is rollback to Prod Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'manish@zibal.com,bhim@zibal.com,smriti@zibal.com,gaurav@zibal.com,yatharth@zibal.com'
+                   }  
+		   
+		   }
+		       
+    
+    
+   

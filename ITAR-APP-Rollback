@@ -1,0 +1,99 @@
+node("DEV-1") {
+    
+    environment {
+
+        PROJECT_NAME = 'ITAR-APP'
+        PROJECT_SOLUTION_NAME= 'Rigil_Store.sln'
+        
+       }
+   
+     stage('Validating Build Number') { // for display purposes
+      
+        def jenkins = Jenkins.getInstance()
+        def jobName = "ITAR-APP-Rollback"
+        def job = jenkins.getItem(jobName)
+        def BuildNo = "${BUILD_NUMBER}"
+
+        def allbuild = "${job.getBuilds().collect{ it.getNumber()}}"
+        if(allbuild.contains(BuildNo)){
+            println "We found the build number entered by you in the build history: ${BuildNo}"
+          
+        } 
+        else 
+        {
+            println "No build number was found "
+            
+            emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+               Build is failed due to incorrect build number.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - FAILED!',to: 'santosh@zibal.com,bhim@zibal.com'
+            error("Build failed because of this and that..")
+       }
+        
+        
+    }
+   
+    
+    
+    
+     stage('  Rollback to Dev') {
+                
+                
+                    
+                   sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "aws s3 cp s3://rigil-aws-devops-staging-s3-bucket/ITAR-APP/backup/${BUILD_NUMBER}/ C:\\webapps\\jenkins\\rollback\\ITAR\\APP --recursive",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+		                   ),
+		                   sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell Expand-Archive -Path C:\\webapps\\jenkins\\rollback\\ITAR\\APP\\ITAR-APP.zip -DestinationPath C:\\webapps\\jenkins\\rollback\\ITAR\\APP\\ -F",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+		                   ),
+		                   sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: "Powershell copy-item -Path C:\\webapps\\jenkins\\rollback\\ITAR\\APP\\app\\* C:\\webapps\\iViews_2.2\\ITAR\\app\\  -recurse -Force",
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                      
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+                       emailext body: '''$PROJECT_NAME - Build # $BUILD_NUMBER :
+                         Build deployed to Dev Env.''', recipientProviders: [buildUser()], subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!',to: 'santosh@zibal.com,bhim@zibal.com'
+		 }
+                  
+			  
+			  
+     stage("IIS Reset/Recyle"){
+            
+                echo "====++++executing IIS Reset/Recyle++++===="
+                sshPublisher(publishers: [sshPublisherDesc(
+                       configName: 'ec2-18-214-134-69.compute-1.amazonaws.com:41753', 
+                       sshCredentials: [encryptedPassphrase: '{AQAAABAAAAAg4c2oYSXWPsWk41d79wcju1qfIOvLRYsFN5in172AzON4Mrc44Y8p1dghzYA7QN+h}', key: '', keyPath: '', username: 'Santosh'],
+                       transfers: [sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe recycle APPPOOL "iViews12.2"',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe stop site /site.name:iViews12.2',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       ),
+                       sshTransfer(cleanRemote: false, 
+                       excludes: '', 
+                       execCommand: 'cmd /c C:\\Windows\\System32\\inetsrv\\appcmd.exe start site /site.name:iViews12.2',
+                       execTimeout: 120000, flatten: false, makeEmptyDirs: false,
+                       noDefaultExcludes: false, patternSeparator: '[, ]+', 
+                       )], 
+                       usePromotionTimestamp: false, useWorkspaceInPromotion: false, verbose: true)])
+            }
+            
+    
+
+}    
